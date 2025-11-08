@@ -1,0 +1,10 @@
+langchain
+langchain-groq
+langgraph
+langchain-core
+streamlit
+requests
+python-dotenv
+yfinance
+alpha-vantage
+newsapi-python
