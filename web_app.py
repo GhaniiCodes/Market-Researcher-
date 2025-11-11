@@ -47,6 +47,26 @@ st.markdown("""
         background-color: #F5F5F5;
         border-left: 4px solid #4CAF50;
     }
+    .agent-badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .news-badge {
+        background-color: #E3F2FD;
+        color: #1976D2;
+    }
+    .market-badge {
+        background-color: #F3E5F5;
+        color: #7B1FA2;
+    }
+    .stock-badge {
+        background-color: #E8F5E9;
+        color: #388E3C;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,38 +74,9 @@ st.markdown("""
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "api_configured" not in st.session_state:
-    st.session_state.api_configured = False
-
-# Sidebar for API configuration
+# Sidebar for information
 with st.sidebar:
-    st.title("⚙️ Configuration")
-    
-    st.markdown("### API Keys")
-    groq_api_key = st.text_input(
-        "Groq API Key", 
-        type="password", 
-        value=os.getenv("GROQ_API_KEY", ""),
-        help="Required: Get your key from https://console.groq.com"
-    )
-    news_api_key = st.text_input(
-        "News API Key", 
-        type="password", 
-        value=os.getenv("NEWS_API_KEY", ""),
-        help="Optional: Get your key from https://newsapi.org"
-    )
-    
-    if st.button("Save API Keys"):
-        if groq_api_key:
-            os.environ["GROQ_API_KEY"] = groq_api_key
-            if news_api_key:
-                os.environ["NEWS_API_KEY"] = news_api_key
-            st.session_state.api_configured = True
-            st.success("✅ API Keys saved!")
-        else:
-            st.error("❌ Groq API Key is required!")
-    
-    st.markdown("---")
+    st.title("ℹ️ Information")
     
     st.markdown("### 🤖 Available Agents")
     
@@ -124,7 +115,7 @@ with st.sidebar:
         **Specialization:** Financial Data
         
         **Capabilities:**
-        - Stock price information
+        - Real-time stock prices
         - Market analysis
         - Trading volume data
         
@@ -132,7 +123,7 @@ with st.sidebar:
         - "AAPL stock price"
         - "Tesla stock analysis"
         
-        **Note:** Currently using demo data
+        **Note:** Uses Yahoo Finance data
         """)
     
     st.markdown("---")
@@ -154,7 +145,9 @@ st.markdown("""
 
 # Check API configuration
 if not os.getenv("GROQ_API_KEY"):
-    st.warning("⚠️ Please configure your Groq API key in the sidebar to use the assistant.")
+    st.error("❌ Groq API key not found. Please set GROQ_API_KEY in your .env file.")
+    st.info("💡 Get your key from https://console.groq.com and add it to your .env file")
+    st.stop()
 
 # Quick action buttons
 col1, col2, col3 = st.columns(3)
@@ -188,9 +181,19 @@ with chat_container:
         else:
             agent_name = message.get('agent', 'Assistant')
             content = message["content"]
+            
+            # Determine badge class
+            badge_class = "agent-badge"
+            if "News" in agent_name:
+                badge_class += " news-badge"
+            elif "Market" in agent_name:
+                badge_class += " market-badge"
+            elif "Stock" in agent_name:
+                badge_class += " stock-badge"
+            
             st.markdown(f"""
             <div class='message-container agent-message'>
-                <strong>🤖 {agent_name}:</strong><br>
+                <span class='{badge_class}'>🤖 {agent_name}</span><br>
                 {content}
             </div>
             """, unsafe_allow_html=True)
@@ -206,69 +209,56 @@ else:
     query = st.chat_input("Ask about news, products, or stocks...")
 
 if query:
-    if not os.getenv("GROQ_API_KEY"):
-        st.error("⚠️ Please configure your Groq API key in the sidebar first!")
-    else:
-        # Add user message to chat
-        st.session_state.messages.append({
-            "role": "user",
-            "content": query
-        })
-        
-        # Show processing message
-        with st.spinner("🔄 Agents are processing your query..."):
-            try:
-                # Run the multi-agent system
-                graph = create_workflow()
-                result = graph.invoke({
-                    "messages": [HumanMessage(content=query)]
-                })
-                
-                # Extract agent responses
-                agent_responded = False
-                for msg in result["messages"]:
-                    if msg.type == "ai" and msg != result["messages"][0]:  # Skip the query itself
-                        # Determine which agent responded
-                        agent_name = "Assistant"
-                        content = msg.content
-                        
-                        # Try to identify agent from content or metadata
-                        if "news" in content.lower() or "article" in content.lower():
-                            agent_name = "News Agent"
-                        elif "product" in content.lower() or "price" in content.lower():
-                            agent_name = "Market Research Agent"
-                        elif "stock" in content.lower() or "market" in content.lower():
-                            agent_name = "Stock Agent"
-                        
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "agent": agent_name,
-                            "content": content
-                        })
-                        agent_responded = True
-                
-                if not agent_responded:
+    # Add user message to chat
+    st.session_state.messages.append({
+        "role": "user",
+        "content": query
+    })
+    
+    # Show processing message
+    with st.spinner("🔄 Agents are processing your query..."):
+        try:
+            # Run the multi-agent system (now returns messages AND active_agent)
+            messages, active_agent = run_agent_system(query)
+            
+            # Extract agent responses
+            agent_responded = False
+            for msg in messages:
+                if msg.type == "ai":
+                    content = msg.content
+                    
+                    # Use the active_agent from the system
+                    agent_name = active_agent if active_agent else "Assistant"
+                    
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "agent": "System",
-                        "content": "I processed your query but couldn't generate a response. Please try rephrasing your question."
+                        "agent": agent_name,
+                        "content": content
                     })
-                
-                # Rerun to show new messages
-                st.rerun()
-                
-            except ValueError as ve:
-                st.error(f"❌ Configuration Error: {str(ve)}")
-                st.info("💡 Make sure your Groq API key is valid.")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                st.info("💡 Make sure your API keys are valid and you have internet connection.")
-                # Add error message to chat
+                    agent_responded = True
+            
+            if not agent_responded:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "agent": "System",
-                    "content": f"Error occurred: {str(e)}"
+                    "content": "I processed your query but couldn't generate a response. Please try rephrasing your question."
                 })
+            
+            # Rerun to show new messages
+            st.rerun()
+            
+        except ValueError as ve:
+            st.error(f"❌ Configuration Error: {str(ve)}")
+            st.info("💡 Make sure your Groq API key is valid in the .env file.")
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+            st.info("💡 Make sure your API keys are valid and you have internet connection.")
+            # Add error message to chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "agent": "System",
+                "content": f"Error occurred: {str(e)}"
+            })
 
 # Footer
 st.markdown("---")
@@ -294,17 +284,26 @@ with st.expander("ℹ️ System Information"):
     
     ### Architecture:
     - **Framework:** LangGraph (LangChain)
-    - **LLM Provider:** Groq (llama-3.1-70b)
+    - **LLM Provider:** Groq (llama-3.3-70b-versatile)
     - **Agent Pattern:** Supervisor with specialized sub-agents
-    - **Tools:** News API, Product APIs (demo), Stock Market APIs (demo)
+    - **Tools:** News API, Product APIs (demo), Yahoo Finance (real-time stocks)
     
     ### Setup:
     1. Get a Groq API key from https://console.groq.com
     2. (Optional) Get a News API key from https://newsapi.org
-    3. Enter keys in the sidebar
-    4. Start chatting!
+    3. Add keys to your .env file:
+       ```
+       GROQ_API_KEY=your_key_here
+       NEWS_API_KEY=your_key_here
+       ```
+    4. Start the app and begin chatting!
+    
+    ### Security:
+    - API keys are loaded from .env file only
+    - Keys are never displayed in the UI
+    - All keys are kept secure in environment variables
     
     ### Note:
-    Product and Stock data are currently using demo responses. 
-    Integrate real APIs for production use.
+    Product data is currently using demo responses. 
+    Stock data uses real-time Yahoo Finance API.
     """)

@@ -12,13 +12,13 @@ from langchain_core.tools import tool
 # --------------------------------------------------------------
 # 1. CONFIGURATION
 # --------------------------------------------------------------
-load_dotenv(r"D:\BAVE AI\Market-Researcher-\.env")   # <-- adjust if needed
+load_dotenv(r"D:\BAVE AI\Market-Researcher-\.env")  
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found in environment")
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # --------------------------------------------------------------
 # 2. LLM
@@ -129,16 +129,17 @@ market_llm = llm.bind_tools([get_product_info])
 stock_llm = llm.bind_tools([get_stock_market_data])
 
 # --------------------------------------------------------------
-# 4. STATE
+# 4. STATE (UPDATED: Added active_agent tracking)
 # --------------------------------------------------------------
 class AgentState(MessagesState):
-    next: str = "supervisor"   # default
+    next: str = "supervisor"
+    active_agent: str = ""  # NEW: Track which agent is active
 
 
 # --------------------------------------------------------------
-# 5. AGENT NODE FACTORY (handles tool call + final summary)
+# 5. AGENT NODE FACTORY (UPDATED: Sets active_agent)
 # --------------------------------------------------------------
-def make_agent_node(llm_with_tool, system_prompt, tool_name):
+def make_agent_node(llm_with_tool, system_prompt, tool_name, agent_name):
     def node(state: AgentState):
         msgs = state["messages"]
         user_msg = msgs[-1]
@@ -157,10 +158,18 @@ def make_agent_node(llm_with_tool, system_prompt, tool_name):
                     AIMessage(content=f"Tool result:\n{raw}"),
                     HumanMessage(content="Give a concise, professional summary of the tool result.")
                 ])
-                return {"messages": [AIMessage(content=summary.content)], "next": END}
+                return {
+                    "messages": [AIMessage(content=summary.content)], 
+                    "next": END,
+                    "active_agent": agent_name  # NEW: Set active agent
+                }
 
         # 3. No tool call → just return LLM answer
-        return {"messages": [resp], "next": END}
+        return {
+            "messages": [resp], 
+            "next": END,
+            "active_agent": agent_name  # NEW: Set active agent
+        }
 
     return node
 
@@ -168,19 +177,22 @@ def make_agent_node(llm_with_tool, system_prompt, tool_name):
 news_agent_node = make_agent_node(
     news_llm,
     "You are a news specialist. Use the **search_news** tool to fetch the top 3 articles. Summarize clearly.",
-    "search_news"
+    "search_news",
+    "News Agent"  # NEW: Agent name
 )
 
 market_agent_node = make_agent_node(
     market_llm,
     "You are a product-research expert. Use **get_product_info** and provide pricing, features, and a short comparison.",
-    "get_product_info"
+    "get_product_info",
+    "Market Research Agent"  # NEW: Agent name
 )
 
 stock_agent_node = make_agent_node(
     stock_llm,
     "You are a financial analyst. Use **get_stock_market_data** to give price, change, key metrics, and a brief outlook.",
-    "get_stock_market_data"
+    "get_stock_market_data",
+    "Stock Agent"  # NEW: Agent name
 )
 
 # --------------------------------------------------------------
@@ -265,24 +277,24 @@ def create_workflow():
 
 
 # --------------------------------------------------------------
-# 8. RUNNER
+# 8. RUNNER (UPDATED: Returns active_agent info)
 # --------------------------------------------------------------
 def run_agent_system(query: str):
     try:
         graph = create_workflow()
         result = graph.invoke(
             {"messages": [HumanMessage(content=query)]},
-            config={"recursion_limit": 50},   # safety net
+            config={"recursion_limit": 50},
         )
-        return result["messages"]
+        return result["messages"], result.get("active_agent", "Unknown")
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return [AIMessage(content=f"System error: {e}")]
+        return [AIMessage(content=f"System error: {e}")], "Error"
 
 
 # --------------------------------------------------------------
-# 9. QUICK TEST (run the file directly)
+# 9. QUICK TEST (UPDATED: Shows which agent handled query)
 # --------------------------------------------------------------
 if __name__ == "__main__":
     tests = [
@@ -295,7 +307,9 @@ if __name__ == "__main__":
         print("\n" + "=" * 70)
         print(f"QUERY: {q}")
         print("=" * 70)
-        msgs = run_agent_system(q)
+        msgs, active_agent = run_agent_system(q)
+        print(f"\n🤖 HANDLED BY: {active_agent}")
+        print("-" * 70)
         for m in msgs:
             if m.type == "ai":
                 print("\nAI RESPONSE:\n" + m.content)
