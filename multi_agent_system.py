@@ -1,51 +1,41 @@
 import os
 import requests
-from datetime import datetime
-from typing import Literal
-
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langgraph.graph import StateGraph, MessagesState, START, END 
-from langchain_core.tools import tool
 
 # --------------------------------------------------------------
-# 1. CONFIGURATION
+# CONFIGURATION
 # --------------------------------------------------------------
-load_dotenv(r"D:\BAVE AI\Market-Researcher-\.env")  
+load_dotenv(r"D:\BAVE AI\Market-Researcher-\.env")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found in environment")
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
-
-# --------------------------------------------------------------
-# 2. LLM
-# --------------------------------------------------------------
 llm = ChatGroq(
     api_key=GROQ_API_KEY,
-    model=GROQ_MODEL,
+    model="llama-3.3-70b-versatile",
     temperature=0,
 )
 
 # --------------------------------------------------------------
-# 3. TOOLS
+# AGENT 1: NEWS AGENT (Uses News API)
 # --------------------------------------------------------------
-
-@tool
-def search_news(query: str) -> str:
-    """Search the latest news articles (requires NEWS_API_KEY)."""
+def news_agent(query: str) -> str:
+    """Fetches latest news using News API."""
     api_key = os.getenv("NEWS_API_KEY")
     if not api_key:
-        return "News API key not configured – set NEWS_API_KEY in .env"
+        return "❌ News API key not configured"
 
-    url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&pageSize=5&apiKey={api_key}"
+    url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&pageSize=3&apiKey={api_key}"
+    
     try:
         resp = requests.get(url, timeout=10)
         data = resp.json()
+        
         if data.get("status") != "ok":
-            return f"NewsAPI error: {data.get('message', 'unknown')}"
+            return f"❌ NewsAPI error: {data.get('message', 'unknown')}"
 
         articles = []
         for a in data["articles"][:3]:
@@ -55,40 +45,97 @@ def search_news(query: str) -> str:
                 f"{a.get('description','')[:200]}...\n"
                 f"[Read more]({a.get('url','#')})\n"
             )
-        return "\n".join(articles) or "No articles found."
+        
+        news_data = "\n".join(articles) if articles else "No articles found."
+        
+        # Use LLM to summarize
+        summary = llm.invoke([
+            SystemMessage(content="You are a news specialist. Summarize the news clearly and professionally."),
+            HumanMessage(content=f"News data:\n{news_data}\n\nSummarize this for the query: {query}")
+        ])
+        
+        return summary.content
+        
     except Exception as e:
-        return f"News fetch error: {e}"
+        return f"❌ News fetch error: {e}"
 
 
-@tool
-def get_product_info(product_name: str) -> str:
-    """Demo product info (replace with real e-commerce API in prod)."""
-    return f"""
-**Product:** {product_name}
-**Average Price:** $1,199.00
-**Rating:** 4.7/5 stars
-**Availability:** In Stock
-
-**Key Features:**
-- A17 Pro chip
-- 48 MP Main camera
-- USB-C charging
-- Dynamic Island
-- Aerospace-grade aluminum
-
-*Demo data – integrate Amazon/eBay API for production.*
+# --------------------------------------------------------------
+# AGENT 2: MARKET RESEARCH AGENT (Uses RapidAPI E-commerce APIs)
+# --------------------------------------------------------------
+def market_agent(query: str) -> str:
+    """Provides product research using real e-commerce APIs."""
+    
+    rapidapi_key = os.getenv("RAPIDAPI_KEY")
+    if not rapidapi_key:
+        return "❌ RapidAPI key not configured. Add RAPIDAPI_KEY to .env file"
+    
+    try:
+        # Using Real-Time Amazon Data API
+        url = "https://real-time-amazon-data.p.rapidapi.com/search"
+        
+        headers = {
+            "X-RapidAPI-Key": rapidapi_key,
+            "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com"
+        }
+        
+        params = {
+            "query": query,
+            "page": "1",
+            "country": "US",
+            "sort_by": "RELEVANCE",
+            "product_condition": "ALL"
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        data = response.json()
+        
+        if data.get("status") != "OK" or not data.get("data", {}).get("products"):
+            return f"❌ No products found for: {query}"
+        
+        # Get top 3 products
+        products = data["data"]["products"][:3]
+        product_data = []
+        
+        for idx, p in enumerate(products, 1):
+            product_info = f"""
+**Product {idx}: {p.get('product_title', 'N/A')}**
+- Price: {p.get('product_price', 'N/A')}
+- Rating: {p.get('product_star_rating', 'N/A')} ({p.get('product_num_ratings', 0)} reviews)
+- URL: {p.get('product_url', 'N/A')}
 """
+            product_data.append(product_info)
+        
+        product_summary = "\n".join(product_data)
+        
+        # Use LLM to analyze
+        analysis = llm.invoke([
+            SystemMessage(content="You are a product research expert. Provide detailed analysis of products including pricing, features, ratings, and recommendations."),
+            HumanMessage(content=f"User query: {query}\n\nProduct data:\n{product_summary}\n\nProvide a comprehensive market research response with comparisons and recommendations.")
+        ])
+        
+        return analysis.content
+        
+    except Exception as e:
+        return f"❌ Market research error: {e}"
 
 
-@tool
-def get_stock_market_data(symbol: str) -> str:
-    """REAL-TIME stock data via yfinance."""
+# --------------------------------------------------------------
+# AGENT 3: STOCK AGENT (Uses yfinance API)
+# --------------------------------------------------------------
+def stock_agent(query: str) -> str:
+    """Fetches real-time stock data using yfinance."""
+    
     try:
         import yfinance as yf
-        ticker = yf.Ticker(symbol.strip().upper())
+        
+        # Extract stock symbol from query
+        words = query.upper().split()
+        symbol = next((w for w in words if w in ["AAPL", "TSLA", "GOOGL", "MSFT", "AMZN"]), "AAPL")
+        
+        ticker = yf.Ticker(symbol)
         info = ticker.info
 
-        # Pull the most useful fields
         price = info.get("currentPrice") or info.get("regularMarketPrice") or "N/A"
         change = info.get("regularMarketChange") or "N/A"
         change_pct = info.get("regularMarketChangePercent") or "N/A"
@@ -96,220 +143,117 @@ def get_stock_market_data(symbol: str) -> str:
         day_low = info.get("dayLow") or "N/A"
         volume = info.get("volume") or "N/A"
         market_cap = info.get("marketCap") or "N/A"
-        pe = info.get("trailingPE") or "N/A"
 
-        # Human-readable formatting
-        def fmt(num):
-            if isinstance(num, (int, float)):
-                if num >= 1e9:
-                    return f"${num/1e9:.2f}B"
-                if num >= 1e6:
-                    return f"${num/1e6:.2f}M"
-                return f"${num:,.2f}"
-            return str(num)
-
-        return f"""
-**Stock:** {symbol.upper()}
-**Current Price:** {fmt(price)}
-**Change:** {fmt(change)} ({change_pct:+.2f}%)  
-**Day Range:** {fmt(day_low)} – {fmt(day_high)}
-**Volume:** {volume:,}
-**Market Cap:** {fmt(market_cap)}
-**P/E Ratio:** {pe if pe != 'N/A' else 'N/A'}
-
-*Data from Yahoo Finance (real-time).*
+        stock_data = f"""
+Stock: {symbol}
+Current Price: ${price}
+Change: {change} ({change_pct:+.2f}%)
+Day Range: ${day_low} — ${day_high}
+Volume: {volume:,}
+Market Cap: ${market_cap}
 """
+        
+        # Use LLM to analyze
+        analysis = llm.invoke([
+            SystemMessage(content="You are a financial analyst. Provide stock analysis with key metrics and brief outlook."),
+            HumanMessage(content=f"Stock data:\n{stock_data}\n\nProvide analysis for: {query}")
+        ])
+        
+        return analysis.content
+        
     except Exception as e:
-        return f"Stock data error: {e}"
-
-
-# Bind tools to separate LLM instances (so each agent sees only its tool)
-news_llm = llm.bind_tools([search_news])
-market_llm = llm.bind_tools([get_product_info])
-stock_llm = llm.bind_tools([get_stock_market_data])
-
-# --------------------------------------------------------------
-# 4. STATE (UPDATED: Added active_agent tracking)
-# --------------------------------------------------------------
-class AgentState(MessagesState):
-    next: str = "supervisor"
-    active_agent: str = ""  # NEW: Track which agent is active
+        return f"❌ Stock data error: {e}"
 
 
 # --------------------------------------------------------------
-# 5. AGENT NODE FACTORY (UPDATED: Sets active_agent)
+# AGENT 4: SUPERVISOR (Routes to appropriate agent)
 # --------------------------------------------------------------
-def make_agent_node(llm_with_tool, system_prompt, tool_name, agent_name):
-    def node(state: AgentState):
-        msgs = state["messages"]
-        user_msg = msgs[-1]
-
-        # 1. Ask LLM (may return tool call)
-        resp = llm_with_tool.invoke([SystemMessage(content=system_prompt), user_msg])
-
-        # 2. If tool call → execute → ask LLM to summarize
-        if resp.tool_calls:
-            tc = resp.tool_calls[0]
-            if tc["name"] == tool_name:
-                raw = globals()[tool_name].invoke(tc["args"])
-                summary = llm.invoke([
-                    SystemMessage(content=system_prompt),
-                    user_msg,
-                    AIMessage(content=f"Tool result:\n{raw}"),
-                    HumanMessage(content="Give a concise, professional summary of the tool result.")
-                ])
-                return {
-                    "messages": [AIMessage(content=summary.content)], 
-                    "next": END,
-                    "active_agent": agent_name  # NEW: Set active agent
-                }
-
-        # 3. No tool call → just return LLM answer
-        return {
-            "messages": [resp], 
-            "next": END,
-            "active_agent": agent_name  # NEW: Set active agent
-        }
-
-    return node
-
-
-news_agent_node = make_agent_node(
-    news_llm,
-    "You are a news specialist. Use the **search_news** tool to fetch the top 3 articles. Summarize clearly.",
-    "search_news",
-    "News Agent"  # NEW: Agent name
-)
-
-market_agent_node = make_agent_node(
-    market_llm,
-    "You are a product-research expert. Use **get_product_info** and provide pricing, features, and a short comparison.",
-    "get_product_info",
-    "Market Research Agent"  # NEW: Agent name
-)
-
-stock_agent_node = make_agent_node(
-    stock_llm,
-    "You are a financial analyst. Use **get_stock_market_data** to give price, change, key metrics, and a brief outlook.",
-    "get_stock_market_data",
-    "Stock Agent"  # NEW: Agent name
-)
-
-# --------------------------------------------------------------
-# 6. SUPERVISOR (routes once, then finishes)
-# --------------------------------------------------------------
-def supervisor_node(state: AgentState):
-    # If any AI message already exists → we are done
-    if any(isinstance(m, AIMessage) for m in state["messages"]):
-        return {"next": END}
-
-    query = state["messages"][-1].content
-
-    prompt = f"""Route the user query to **exactly one** agent. Reply with ONLY the agent name:
-
-- news_agent
-- market_research_agent  
-- stock_agent
+def supervisor_agent(query: str) -> dict:
+    """Routes query to the appropriate specialist agent and returns response."""
+    
+    # Ask LLM to route the query
+    routing_prompt = f"""You are a routing supervisor. Analyze the user query and respond with ONLY ONE of these words:
+    
+- news (for news, articles, headlines, current events)
+- market (for products, prices, features, shopping, buying)
+- stock (for stocks, trading, financial markets, ticker symbols)
 
 Query: {query}
 
-Answer with only the agent name (no punctuation, no extra text)."""
+Respond with only one word (news, market, or stock):"""
 
     try:
-        resp = llm.invoke([SystemMessage(content=prompt)])
-        route = resp.content.strip().lower()
-
+        route_response = llm.invoke([
+            SystemMessage(content="You are a routing expert. Reply with only one word."),
+            HumanMessage(content=routing_prompt)
+        ])
+        
+        route = route_response.content.strip().lower()
+        
+        # Route to appropriate agent
         if "news" in route:
-            return {"next": "news_agent"}
-        if "market" in route or "product" in route or "iphone" in route:
-            return {"next": "market_research_agent"}
-        if "stock" in route or "aapl" in route:
-            return {"next": "stock_agent"}
-
-        # ---- fallback keyword routing ----
-        q = query.lower()
-        if any(w in q for w in ["news", "article", "latest", "headlines"]):
-            return {"next": "news_agent"}
-        if any(w in q for w in ["price", "feature", "iphone", "laptop", "buy"]):
-            return {"next": "market_research_agent"}
-        if any(w in q for w in ["stock", "aapl", "tesla", "nasdaq", "price of"]):
-            return {"next": "stock_agent"}
-
-        return {"next": "news_agent"}   # safe default
+            agent_name = "News Agent"
+            response = news_agent(query)
+        elif "market" in route:
+            agent_name = "Market Research Agent"
+            response = market_agent(query)
+        elif "stock" in route:
+            agent_name = "Stock Agent"
+            response = stock_agent(query)
+        else:
+            # Fallback: keyword-based routing
+            q = query.lower()
+            if any(w in q for w in ["news", "article", "latest", "headlines"]):
+                agent_name = "News Agent"
+                response = news_agent(query)
+            elif any(w in q for w in ["price", "product", "iphone", "buy", "feature"]):
+                agent_name = "Market Research Agent"
+                response = market_agent(query)
+            else:
+                agent_name = "Stock Agent"
+                response = stock_agent(query)
+        
+        return {
+            "agent": agent_name,
+            "response": response,
+            "query": query
+        }
+        
     except Exception as e:
-        print(f"Supervisor error: {e}")
-        return {"next": END}
+        return {
+            "agent": "Error",
+            "response": f"❌ System error: {e}",
+            "query": query
+        }
 
 
 # --------------------------------------------------------------
-# 7. BUILD GRAPH
-# --------------------------------------------------------------
-def create_workflow():
-    workflow = StateGraph(AgentState)
-
-    # nodes
-    workflow.add_node("supervisor", supervisor_node)
-    workflow.add_node("news_agent", news_agent_node)
-    workflow.add_node("market_research_agent", market_agent_node)
-    workflow.add_node("stock_agent", stock_agent_node)
-
-    # start → supervisor
-    workflow.add_edge(START, "supervisor")
-
-    # supervisor → chosen agent (conditional)
-    workflow.add_conditional_edges(
-        "supervisor",
-        lambda s: s["next"],
-        {
-            "news_agent": "news_agent",
-            "market_research_agent": "market_research_agent",
-            "stock_agent": "stock_agent",
-            END: END,
-        },
-    )
-
-    # every agent → END
-    workflow.add_edge("news_agent", END)
-    workflow.add_edge("market_research_agent", END)
-    workflow.add_edge("stock_agent", END)
-
-    return workflow.compile()
-
-
-# --------------------------------------------------------------
-# 8. RUNNER (UPDATED: Returns active_agent info)
+# MAIN RUNNER
 # --------------------------------------------------------------
 def run_agent_system(query: str):
-    try:
-        graph = create_workflow()
-        result = graph.invoke(
-            {"messages": [HumanMessage(content=query)]},
-            config={"recursion_limit": 50},
-        )
-        return result["messages"], result.get("active_agent", "Unknown")
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return [AIMessage(content=f"System error: {e}")], "Error"
+    """Main entry point - routes and executes query."""
+    result = supervisor_agent(query)
+    return result
 
 
 # --------------------------------------------------------------
-# 9. QUICK TEST (UPDATED: Shows which agent handled query)
+# TEST
 # --------------------------------------------------------------
 if __name__ == "__main__":
-    tests = [
+    test_queries = [
         "What's the latest news about artificial intelligence?",
         "Tell me about the iPhone 15 price and features",
         "What's the current stock price of Apple (AAPL)?",
     ]
 
-    for q in tests:
+    for query in test_queries:
         print("\n" + "=" * 70)
-        print(f"QUERY: {q}")
+        print(f"QUERY: {query}")
         print("=" * 70)
-        msgs, active_agent = run_agent_system(q)
-        print(f"\n🤖 HANDLED BY: {active_agent}")
+        
+        result = run_agent_system(query)
+        
+        print(f"\n🤖 AGENT: {result['agent']}")
         print("-" * 70)
-        for m in msgs:
-            if m.type == "ai":
-                print("\nAI RESPONSE:\n" + m.content)
+        print(f"\n{result['response']}")
+        print("\n")
