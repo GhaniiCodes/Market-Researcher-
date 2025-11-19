@@ -1,0 +1,22 @@
+[project]
+name = "market-researcher"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alpha-vantage>=3.0.0",
+    "fastapi>=0.121.2",
+    "fastapi-users[sqlalchemy]>=15.0.1",
+    "imagekitio>=4.2.0",
+    "langchain>=1.0.8",
+    "langchain-core>=1.0.6",
+    "langchain-groq>=1.0.1",
+    "langgraph>=1.0.3",
+    "newsapi-python>=0.2.7",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+    "sqlmodel>=0.0.27",
+    "streamlit>=1.51.0",
+    "yfinance>=0.2.66",
+]
