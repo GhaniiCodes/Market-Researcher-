@@ -1,6 +1,12 @@
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import existing modules
+sys.path.append(str(Path(__file__).parent.parent))
+
 import yfinance as yf
 from langchain_core.messages import HumanMessage, SystemMessage
-from llm import get_llm
+from llm.llm import get_llm
 
 def extract_symbol(query: str) -> str:
     query_upper = query.upper()

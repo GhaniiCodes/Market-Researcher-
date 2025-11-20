@@ -8,7 +8,7 @@ class QueryRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "query": "What's the latest news on AI?"
+                "query": "Who is GOAT in Football (Soccer)?"
             }
         }
 
@@ -24,7 +24,7 @@ class QueryResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "query_id": 1,
-                "query": "What's the latest news on AI?",
+                "query": "Who is GOAT in Football (Soccer)?",
                 "agent": "News Agent",
                 "response": "### Latest News on: AI...",
                 "timestamp": "2024-01-15T10:30:00",

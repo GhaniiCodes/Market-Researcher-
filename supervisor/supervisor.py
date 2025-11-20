@@ -1,8 +1,14 @@
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import existing modules
+sys.path.append(str(Path(__file__).parent.parent))
+
 from langchain_core.messages import HumanMessage
-from llm import get_llm
-from news_agent import news_agent
-from market_agent import market_agent
-from stock_agent import stock_agent
+from llm.llm import get_llm
+from agents.news_agent import news_agent
+from agents.market_agent import market_agent
+from agents.stock_agent import stock_agent
 
 def general_agent(query: str) -> str:
     """Handles queries that don't fit into specialized categories."""

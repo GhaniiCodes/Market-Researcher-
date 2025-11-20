@@ -1,4 +1,10 @@
-from supervisor import supervisor_agent
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import existing modules
+sys.path.append(str(Path(__file__).parent.parent))
+
+from supervisor.supervisor import supervisor_agent
 
 def run_query(query: str):
     print(f"\n{'='*80}")

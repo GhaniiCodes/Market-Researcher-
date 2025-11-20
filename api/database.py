@@ -7,6 +7,27 @@ from contextlib import contextmanager
 # Database file path
 DB_PATH = Path(__file__).parent / "query_history.db"
 
+def _parse_timestamp(timestamp_str: str) -> datetime:
+    """Convert SQLite timestamp string to datetime object"""
+    if isinstance(timestamp_str, datetime):
+        return timestamp_str
+    # SQLite timestamps are in format: YYYY-MM-DD HH:MM:SS
+    try:
+        return datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        # Try ISO format as fallback
+        try:
+            return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return datetime.now()
+
+def _row_to_dict(row) -> dict:
+    """Convert SQLite row to dict with proper timestamp conversion"""
+    row_dict = dict(row)
+    if "timestamp" in row_dict and row_dict["timestamp"]:
+        row_dict["timestamp"] = _parse_timestamp(row_dict["timestamp"])
+    return row_dict
+
 @contextmanager
 def get_db():
     """Context manager for database connections"""
@@ -73,7 +94,7 @@ def get_query_by_id(query_id: int) -> Optional[dict]:
         """, (query_id,))
         row = cursor.fetchone()
         if row:
-            return dict(row)
+            return _row_to_dict(row)
         return None
 
 def get_query_history(
@@ -118,7 +139,7 @@ def get_query_history(
         """, params + [limit, offset])
         
         rows = cursor.fetchall()
-        items = [dict(row) for row in rows]
+        items = [_row_to_dict(row) for row in rows]
         
         return items, total
 
@@ -154,7 +175,10 @@ def get_statistics() -> dict:
             LIMIT 1
         """)
         last_row = cursor.fetchone()
-        last_query_time = last_row["timestamp"] if last_row else None
+        if last_row and last_row["timestamp"]:
+            last_query_time = _parse_timestamp(last_row["timestamp"])
+        else:
+            last_query_time = None
         
         return {
             "total_queries": total,

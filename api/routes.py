@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Path
 from typing import Optional
+from datetime import datetime
 import time
 import sys
 from pathlib import Path as PathLib
@@ -23,7 +24,7 @@ from api.database import (
     delete_query,
     clear_history
 )
-from supervisor import supervisor_agent
+from supervisor.supervisor import supervisor_agent
 
 # Query Router
 query_router = APIRouter()
@@ -60,7 +61,7 @@ async def process_query(request: QueryRequest):
             query=result["query"],
             agent=result["agent"],
             response=result["response"],
-            timestamp=time.time(),
+            timestamp=datetime.now(),
             execution_time=execution_time
         )
     

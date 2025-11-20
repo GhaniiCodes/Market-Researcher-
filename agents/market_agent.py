@@ -1,7 +1,24 @@
+import sys
+from pathlib import Path
+import importlib.util
+
+# Add parent directory to path to import existing modules
+sys.path.append(str(Path(__file__).parent.parent))
+
 import requests
 from langchain_core.messages import HumanMessage, SystemMessage
-from llm import get_llm
-from config import settings
+from llm.llm import get_llm
+
+# Handle import of config.config - works even when config is the main module
+try:
+    from config.config import settings
+except (ImportError, ModuleNotFoundError):
+    # Fallback: import config module directly if config is the main module
+    config_path = Path(__file__).parent.parent / "config" / "config.py"
+    spec = importlib.util.spec_from_file_location("config_config", config_path)
+    config_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config_module)
+    settings = config_module.settings
 
 def market_agent(query: str) -> str:
     key = settings.RAPIDAPI_KEY
