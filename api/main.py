@@ -9,10 +9,15 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from api.routes import query_router, history_router
 from api.database import init_db
+from config.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize database
+    # Startup: Validate settings and initialize database
+    try:
+        settings.validate()
+    except EnvironmentError as e:
+        raise RuntimeError(f"Configuration error: {str(e)}. Please set required environment variables.")
     init_db()
     yield
     # Shutdown: cleanup if needed

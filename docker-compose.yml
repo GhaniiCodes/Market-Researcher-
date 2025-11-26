@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  market-researcher:
+    # Use 'build: .' if you have a Dockerfile in the same directory
+    build: .
+    container_name: market-researcher
+    
+    # Expose the application port
+    ports:
+      - "8000:8000"
+      
+    # Load environment variables from a .env file (recommended)
+    env_file:
+      - .env
+      
+      
+    # FIX: The volumes key must define a list/array using hyphens (-)
+    volumes:
+      # This line mounts your local 'logs' directory to '/app/logs' inside the container
+      - ./logs:/app/logs
+      
+    restart: unless-stopped
+    
+    # Optional: Healthcheck to ensure the service is running correctly
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; exit(0 if requests.get('http://localhost:8000/health', timeout=2).status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
