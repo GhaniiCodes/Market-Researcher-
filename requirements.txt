@@ -8,3 +8,4 @@ python-dotenv
 yfinance
 alpha-vantage
 newsapi-python
+pymongo

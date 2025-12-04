@@ -48,12 +48,13 @@ async def process_query(request: QueryRequest):
         
         execution_time = time.time() - start_time
         
-        # Save to database
+        # Save to database (MongoDB) – returns 3-digit integer query_id
         query_id = save_query(
             query=result["query"],
             agent=result["agent"],
             response=result["response"],
-            execution_time=execution_time
+            execution_time=execution_time,
+            adjustments=[],
         )
         
         return QueryResponse(
@@ -72,7 +73,9 @@ async def process_query(request: QueryRequest):
         )
 
 @query_router.get("/query/{query_id}", response_model=QueryResponse)
-async def get_query(query_id: int = Path(..., gt=0, description="Query ID")):
+async def get_query(
+    query_id: int = Path(..., gt=99, lt=1000, description="3-digit query ID (100-999)")
+):
     """Retrieve a specific query by ID"""
     query_data = get_query_by_id(query_id)
     
@@ -136,7 +139,9 @@ async def get_stats():
         )
 
 @history_router.delete("/history/{query_id}")
-async def delete_query_endpoint(query_id: int = Path(..., gt=0)):
+async def delete_query_endpoint(
+    query_id: int = Path(..., gt=99, lt=1000, description="3-digit query ID (100-999)")
+):
     """Delete a specific query from history"""
     try:
         deleted = delete_query(query_id)

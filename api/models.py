@@ -19,6 +19,7 @@ class QueryResponse(BaseModel):
     response: str
     timestamp: datetime
     execution_time: float
+    adjustments: Optional[list] = None
     
     class Config:
         json_schema_extra = {
@@ -45,6 +46,7 @@ class HistoryItem(BaseModel):
     response: str
     timestamp: datetime
     execution_time: float
+    adjustments: Optional[list] = None
 
 class HistoryResponse(BaseModel):
     total: int
